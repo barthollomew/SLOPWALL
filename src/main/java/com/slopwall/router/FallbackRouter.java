@@ -38,8 +38,9 @@ public final class FallbackRouter {
                 throw new ProviderException(provider.name(), 0, "timed out after " + req.timeout(),
                     new java.net.http.HttpTimeoutException("timeout"));
             }
-            scope.throwIfFailed(cause -> new ProviderException(provider.name(),
-                cause instanceof ProviderException pe ? pe.httpStatus() : 0, cause.getMessage(), cause));
+            // Pass through existing ProviderExceptions unchanged to preserve isTimeout() / isRetryable() semantics
+            scope.throwIfFailed(cause -> cause instanceof ProviderException pe ? pe
+                : new ProviderException(provider.name(), 0, cause.getMessage(), cause));
             return task.get();
         } catch (ProviderException e) {
             throw e;
