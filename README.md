@@ -1,6 +1,8 @@
 # SLOPWALL
 
-Java 21 gateway library that wraps LLM API calls with circuit breaking, token-budget enforcement, provider failover, and semantic caching. Drop it in front of any OpenAI, Anthropic, or Ollama endpoint.
+Calling OpenAI or Anthropic directly from a backend service has three common failure modes: one runaway user drains your token budget, a provider outage hangs your request threads, and repeated identical prompts waste money.
+
+SLOPWALL is a Java 21 gateway library that puts a per-tenant token budget (`TokenBucketRateLimiter` that adjusts estimated tokens to actual tokens billed), automatic timeout and provider failover (`FallbackRouter` + `SlidingWindowCircuitBreaker`), and a local SQLite cache (`SqliteSemanticCache`) in front of your LLM calls. Drop it in front of any OpenAI, Anthropic, or Ollama endpoint.
 
 ## What it does
 
