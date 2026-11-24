@@ -38,7 +38,6 @@ public final class SqliteSemanticCache implements SemanticCache, AutoCloseable {
     @Override
     public Optional<String> lookup(String tenantId, String prompt) {
         String hash = sha256(prompt);
-        // 1. Exact hash shortcut (O(1))
         try (var ps = conn.prepareStatement(
                 "SELECT response FROM semantic_cache WHERE tenant=? AND prompt_hash=?")) {
             ps.setString(1, tenantId);
@@ -49,7 +48,6 @@ public final class SqliteSemanticCache implements SemanticCache, AutoCloseable {
             throw new RuntimeException(e);
         }
 
-        // 2. Cosine scan for tenant
         float[] queryVec = engine.embed(prompt);
         try (var ps = conn.prepareStatement(
                 "SELECT embedding, response FROM semantic_cache WHERE tenant=? ORDER BY created_at DESC LIMIT 1000")) {

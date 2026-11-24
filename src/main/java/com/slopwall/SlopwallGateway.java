@@ -24,7 +24,6 @@ public final class SlopwallGateway implements AutoCloseable {
     }
 
     public AiResponse chat(AiRequest request) throws ProviderException {
-        // 1. Rate limit gate (< 0.1ms, CAS-loop)
         int estimated = router.config().primary().estimateTokens(request);
         if (estimated < 0) estimated = DEFAULT_TOKEN_ESTIMATE;
         if (!rateLimiter.tryConsume(request.tenantId(), estimated)) {
@@ -32,7 +31,6 @@ public final class SlopwallGateway implements AutoCloseable {
                 "rate limit exceeded for tenant: " + request.tenantId());
         }
 
-        // 2. Semantic cache lookup (optional)
         if (cache != null) {
             var hit = cache.lookup(request.tenantId(), request.prompt());
             if (hit.isPresent()) {
@@ -43,26 +41,21 @@ public final class SlopwallGateway implements AutoCloseable {
             }
         }
 
-        // 3. Route (primary -> fallback via circuit breaker)
         long start = System.nanoTime();
         AiResponse response = router.route(request);
         long latencyMs = (System.nanoTime() - start) / 1_000_000;
 
-        // 4. Reconcile token estimate with actuals
         int actual = response.promptTokens() + response.completionTokens();
         rateLimiter.reconcile(request.tenantId(), estimated, actual);
 
-        // 5. JFR events
         emitTokenUsage(request, response, estimated);
         emitLatency(response.provider(), latencyMs, false, 0);
 
-        // 6. Async cache store (best-effort virtual thread)
         if (cache != null) {
             Thread.ofVirtual().start(() ->
                 cache.store(request.tenantId(), request.prompt(), response.content()));
         }
 
-        // 7. Shadow test (async, sampled)
         if (shadowTester != null) {
             shadowTester.maybeShadow(request, response);
         }

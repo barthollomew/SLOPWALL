@@ -18,18 +18,6 @@ import static com.github.tomakehurst.wiremock.client.WireMock.*;
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
 import static org.junit.jupiter.api.Assertions.*;
 
-/**
- * Malicious-proxy fault injection: validates that SLOPWALL's circuit breaker state
- * machine transitions correctly under three fault modes:
- *
- * <ol>
- *   <li>Bit-flipped JSON bodies:  CB records failures → opens → recovers via HALF_OPEN.</li>
- *   <li>Malformed chunked encoding: IOException path trips CB identically to JSON corruption.</li>
- *   <li>Full CB state-machine (CLOSED → OPEN → HALF_OPEN → CLOSED): validated end-to-end
- *       with fast CB parameters so the test completes without long sleeps.</li>
- * </ol>
- */
-@SuppressWarnings("preview")
 class MaliciousProxyIT {
 
     @RegisterExtension
@@ -58,29 +46,27 @@ class MaliciousProxyIT {
         return bytes;
     }
 
-    // ── Test 1: Bit-flipped response → circuit breaker opens ─────────────────
+    private FallbackRouter routerFor(SlidingWindowCircuitBreaker primaryBreaker, Duration timeout) {
+        return new FallbackRouter(new RouterConfig(
+            new OpenAiProvider(primary.baseUrl(), "k"),
+            new OpenAiProvider(fallback.baseUrl(), "k"),
+            timeout,
+            primaryBreaker,
+            new SlidingWindowCircuitBreaker()
+        ));
+    }
 
     @Test
     void bitFlippedJson_tripsCircuitBreaker() {
-        // Fast CB: window=5, minCalls=3, failureThreshold=40%, openDuration=500ms
         var breaker = new SlidingWindowCircuitBreaker(5, 3, 0.40, 500);
-        var config = new RouterConfig(
-            new OpenAiProvider(primary.baseUrl(), "k"),
-            new OpenAiProvider(fallback.baseUrl(), "k"),
-            Duration.ofSeconds(5),
-            breaker,
-            new SlidingWindowCircuitBreaker()
-        );
-        var router = new FallbackRouter(config);
+        var router = routerFor(breaker, Duration.ofSeconds(5));
 
-        // Primary always returns bit-flipped garbage
         primary.stubFor(post(urlPathEqualTo("/v1/chat/completions"))
             .willReturn(aResponse()
                 .withStatus(200)
                 .withHeader("Content-Type", "application/json")
                 .withBody(bitFlippedBody(20))));
 
-        // Send enough requests to trip the circuit breaker
         int failures = 0;
         for (int i = 0; i < 6 && breaker.state() != CircuitBreakerState.OPEN; i++) {
             try {
@@ -94,21 +80,11 @@ class MaliciousProxyIT {
             "CB should be OPEN after " + failures + " parse failures (window=5, threshold=40%)");
     }
 
-    // ── Test 2: Malformed chunked encoding → circuit breaker opens ────────────
-
     @Test
     void malformedChunkedEncoding_tripsCircuitBreaker() {
         var breaker = new SlidingWindowCircuitBreaker(5, 3, 0.40, 500);
-        var config = new RouterConfig(
-            new OpenAiProvider(primary.baseUrl(), "k"),
-            new OpenAiProvider(fallback.baseUrl(), "k"),
-            Duration.ofSeconds(5),
-            breaker,
-            new SlidingWindowCircuitBreaker()
-        );
-        var router = new FallbackRouter(config);
+        var router = routerFor(breaker, Duration.ofSeconds(5));
 
-        // Inject a malformed chunked response — Java's HttpClient will throw IOException.
         primary.stubFor(post(urlPathEqualTo("/v1/chat/completions"))
             .willReturn(aResponse().withFault(Fault.MALFORMED_RESPONSE_CHUNK)));
 
@@ -126,24 +102,13 @@ class MaliciousProxyIT {
             " malformed-chunk failures (window=5, threshold=40%)");
     }
 
-    // ── Test 3: Full CB state machine CLOSED → OPEN → HALF_OPEN → CLOSED ─────
-
     @Test
     void circuitBreaker_fullStateMachine_closedOpenHalfOpenClosed() throws Exception {
-        // Fast parameters so transitions happen within milliseconds.
-        var breaker = new SlidingWindowCircuitBreaker(5, 3, 0.40, 300 /* ms */);
-        var config = new RouterConfig(
-            new OpenAiProvider(primary.baseUrl(), "k"),
-            new OpenAiProvider(fallback.baseUrl(), "k"),
-            Duration.ofSeconds(5),
-            breaker,
-            new SlidingWindowCircuitBreaker()
-        );
-        var router = new FallbackRouter(config);
+        var breaker = new SlidingWindowCircuitBreaker(5, 3, 0.40, 300);
+        var router = routerFor(breaker, Duration.ofSeconds(5));
 
         assertEquals(CircuitBreakerState.CLOSED, breaker.state(), "should start CLOSED");
 
-        // ── Phase 1: Trip to OPEN with bit-flipped responses ──────────────────
         primary.stubFor(post(urlPathEqualTo("/v1/chat/completions"))
             .willReturn(aResponse()
                 .withStatus(200)
@@ -155,17 +120,14 @@ class MaliciousProxyIT {
         }
         assertEquals(CircuitBreakerState.OPEN, breaker.state(), "CB should be OPEN after failures");
 
-        // ── Phase 2: Wait for open-duration to expire → HALF_OPEN on next call ─
-        Thread.sleep(350); // > openDuration=300ms
+        Thread.sleep(350);
 
-        // Stub primary to return valid JSON for the probe
         primary.stubFor(post(urlPathEqualTo("/v1/chat/completions"))
             .willReturn(aResponse()
                 .withStatus(200)
                 .withHeader("Content-Type", "application/json")
                 .withBody(validBody())));
 
-        // First call after timeout: CB transitions to HALF_OPEN, then probe succeeds → CLOSED
         assertDoesNotThrow(() -> router.route(AiRequest.of("t", "gpt-4o", "ping")),
             "Probe request after open-duration should succeed");
 
@@ -173,21 +135,11 @@ class MaliciousProxyIT {
             "CB should return to CLOSED after successful probe in HALF_OPEN state");
     }
 
-    // ── Test 4: HALF_OPEN → OPEN when probe fails ─────────────────────────────
-
     @Test
     void circuitBreaker_halfOpenProbeFails_reopens() throws Exception {
         var breaker = new SlidingWindowCircuitBreaker(5, 3, 0.40, 300);
-        var config = new RouterConfig(
-            new OpenAiProvider(primary.baseUrl(), "k"),
-            new OpenAiProvider(fallback.baseUrl(), "k"),
-            Duration.ofSeconds(5),
-            breaker,
-            new SlidingWindowCircuitBreaker()
-        );
-        var router = new FallbackRouter(config);
+        var router = routerFor(breaker, Duration.ofSeconds(5));
 
-        // Trip the CB
         primary.stubFor(post(urlPathEqualTo("/v1/chat/completions"))
             .willReturn(aResponse().withFault(Fault.MALFORMED_RESPONSE_CHUNK)));
 
@@ -196,31 +148,18 @@ class MaliciousProxyIT {
         }
         assertEquals(CircuitBreakerState.OPEN, breaker.state());
 
-        // Wait for open-duration
         Thread.sleep(350);
 
-        // Probe still fails → should re-open
         try { router.route(AiRequest.of("t", "gpt-4o", "ping")); } catch (ProviderException ignored) {}
 
         assertEquals(CircuitBreakerState.OPEN, breaker.state(),
             "CB should re-OPEN when probe in HALF_OPEN state fails");
     }
 
-    // ── Test 5: Socket hang → fallback serves within timeout ─────────────────
-    // (validates integration between existing fault-injection and CB state accounting)
-
     @Test
     void socketHang_fallbackServesAndCbRecordsTimeout() {
-        var primaryBreaker  = new SlidingWindowCircuitBreaker(5, 3, 0.40, 500);
-        var fallbackBreaker = new SlidingWindowCircuitBreaker();
-        var config = new RouterConfig(
-            new OpenAiProvider(primary.baseUrl(), "k"),
-            new OpenAiProvider(fallback.baseUrl(), "k"),
-            Duration.ofMillis(500),
-            primaryBreaker,
-            fallbackBreaker
-        );
-        var router = new FallbackRouter(config);
+        var primaryBreaker = new SlidingWindowCircuitBreaker(5, 3, 0.40, 500);
+        var router = routerFor(primaryBreaker, Duration.ofMillis(500));
 
         primary.stubFor(post(urlPathEqualTo("/v1/chat/completions"))
             .willReturn(aResponse().withFixedDelay(30_000).withStatus(200).withBody(validBody())));
@@ -230,7 +169,6 @@ class MaliciousProxyIT {
                 .withHeader("Content-Type", "application/json")
                 .withBody(validBody())));
 
-        // Send enough requests to trip primary CB via timeouts
         int served = 0;
         for (int i = 0; i < 6; i++) {
             try {
@@ -240,8 +178,6 @@ class MaliciousProxyIT {
         }
 
         assertTrue(served > 0, "Fallback should have served at least one request during socket hangs");
-
-        // Primary breaker should have recorded failures from the timeouts
         assertNotEquals(CircuitBreakerState.CLOSED, primaryBreaker.state(),
             "Primary CB should have moved out of CLOSED after repeated timeout failures");
     }

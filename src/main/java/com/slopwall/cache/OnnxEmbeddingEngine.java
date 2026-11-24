@@ -23,7 +23,6 @@ public final class OnnxEmbeddingEngine implements EmbeddingEngine {
 
     @Override
     public float[] embed(String text) {
-        // Placeholder tokenization. Replace with proper tokenizer for production.
         var tokens = simpleTokenize(text);
         var inputIds = LongBuffer.wrap(tokens);
         var attentionMask = LongBuffer.allocate(tokens.length);
@@ -72,7 +71,7 @@ public final class OnnxEmbeddingEngine implements EmbeddingEngine {
     private long[] simpleTokenize(String text) {
         // Placeholder: real deployment must use proper tokenizer matching the model
         var words = text.trim().split("\\s+");
-        var ids = new long[Math.min(words.length + 2, 512)]; // +2 for [CLS],[SEP]
+        var ids = new long[Math.min(words.length + 2, 512)];
         ids[0] = 101L; // [CLS]
         for (int i = 1; i < ids.length - 1; i++) ids[i] = Math.abs(words[i - 1].hashCode()) % 30000L;
         ids[ids.length - 1] = 102L; // [SEP]
