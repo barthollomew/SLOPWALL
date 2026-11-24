@@ -15,7 +15,6 @@ class CircuitBreakerTest {
     @Test
     void tripsOpenWhenFailureRateExceeds20Percent() {
         var cb = new SlidingWindowCircuitBreaker();
-        // 7 failures in 10 calls = 70% > 20%
         for (int i = 0; i < 3; i++) cb.recordSuccess();
         for (int i = 0; i < 7; i++) cb.recordFailure();
         assertEquals(CircuitBreakerState.OPEN, cb.state());
@@ -25,7 +24,7 @@ class CircuitBreakerTest {
     @Test
     void doesNotTripBelowMinimumCallCount() {
         var cb = new SlidingWindowCircuitBreaker();
-        // 4 failures but only 4 total calls (below MIN_CALLS=5)
+        // 4 failures is below the default minCalls=5 threshold
         for (int i = 0; i < 4; i++) cb.recordFailure();
         assertEquals(CircuitBreakerState.CLOSED, cb.state());
     }
@@ -36,7 +35,6 @@ class CircuitBreakerTest {
         for (int i = 0; i < 5; i++) cb.recordFailure();
         assertEquals(CircuitBreakerState.OPEN, cb.state());
         Thread.sleep(150);
-        // Next allowRequest() should trigger HALF_OPEN transition
         assertTrue(cb.allowRequest());
         assertEquals(CircuitBreakerState.HALF_OPEN, cb.state());
     }
@@ -46,7 +44,7 @@ class CircuitBreakerTest {
         var cb = new SlidingWindowCircuitBreaker(5, 5, 0.20, 100);
         for (int i = 0; i < 5; i++) cb.recordFailure();
         Thread.sleep(150);
-        cb.allowRequest(); // trigger HALF_OPEN
+        cb.allowRequest();
         cb.recordSuccess();
         assertEquals(CircuitBreakerState.CLOSED, cb.state());
     }
@@ -56,7 +54,7 @@ class CircuitBreakerTest {
         var cb = new SlidingWindowCircuitBreaker(5, 5, 0.20, 100);
         for (int i = 0; i < 5; i++) cb.recordFailure();
         Thread.sleep(150);
-        cb.allowRequest(); // trigger HALF_OPEN
+        cb.allowRequest();
         cb.recordFailure();
         assertEquals(CircuitBreakerState.OPEN, cb.state());
     }

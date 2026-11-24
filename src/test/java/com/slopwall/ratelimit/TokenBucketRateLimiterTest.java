@@ -13,33 +13,31 @@ class TokenBucketRateLimiterTest {
         var limiter = new TokenBucketRateLimiter();
         limiter.registerTenant("t1", 1000, 10);
         for (int i = 0; i < 5; i++) assertTrue(limiter.tryConsume("t1", 200));
-        assertFalse(limiter.tryConsume("t1", 1)); // bucket empty
+        assertFalse(limiter.tryConsume("t1", 1));
     }
 
     @Test
     void unknownTenantFailsOpen() {
         var limiter = new TokenBucketRateLimiter();
-        assertTrue(limiter.tryConsume("unknown", 999_999)); // fail-open
+        assertTrue(limiter.tryConsume("unknown", 999_999));
     }
 
     @Test
     void reconcileCreditsOverestimate() {
         var limiter = new TokenBucketRateLimiter();
         limiter.registerTenant("t1", 1000, 0);
-        limiter.tryConsume("t1", 500);   // estimated 500, actual 300
-        limiter.reconcile("t1", 500, 300); // credit back 200
-        assertTrue(limiter.tryConsume("t1", 600)); // 1000 - 300 + 200 credited = 700 avail... wait, reconcile adjusts
-        // After reconcile: bucket spent 300 actual. 700 available.
-        // Consuming 600 should succeed.
+        limiter.tryConsume("t1", 500);
+        limiter.reconcile("t1", 500, 300);
+        assertTrue(limiter.tryConsume("t1", 600));
     }
 
     @Test
     void reconcileDebitsUnderestimate() {
         var limiter = new TokenBucketRateLimiter();
         limiter.registerTenant("t1", 1000, 0);
-        limiter.tryConsume("t1", 500);    // estimated 500, actual 700
-        limiter.reconcile("t1", 500, 700); // debit 200 more
-        assertFalse(limiter.tryConsume("t1", 400)); // only 300 available
+        limiter.tryConsume("t1", 500);
+        limiter.reconcile("t1", 500, 700);
+        assertFalse(limiter.tryConsume("t1", 400));
     }
 
     @Test

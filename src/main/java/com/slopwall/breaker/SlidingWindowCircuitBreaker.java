@@ -43,7 +43,7 @@ public final class SlidingWindowCircuitBreaker implements CircuitBreaker {
             }
             return state.get() == CircuitBreakerState.HALF_OPEN;
         }
-        return true; // HALF_OPEN: allow the probe request
+        return true; // HALF_OPEN
     }
 
     @Override

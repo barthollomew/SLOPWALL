@@ -34,7 +34,7 @@ class RateLimitIntegrationTest {
                 .withBody(okBody())));
 
         var limiter = new TokenBucketRateLimiter();
-        limiter.registerTenant("tenant-a", 500, 0); // 500 tokens, no refill
+        limiter.registerTenant("tenant-a", 500, 0);
 
         var provider = new OpenAiProvider(server.baseUrl(), "test-key");
         var router = new FallbackRouter(RouterConfig.of(provider, provider));

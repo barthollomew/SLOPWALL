@@ -47,10 +47,11 @@ final class TenantBucket {
         long tokens = (elapsed * refillRatePerSecond) / 1000;
         if (tokens <= 0) return;
         long cur;
+        long next;
         do {
             cur = available.get();
-            long next = Math.min(capacity, cur + tokens);
+            next = Math.min(capacity, cur + tokens);
             if (next == cur) return;
-        } while (!available.compareAndSet(cur, Math.min(capacity, cur + tokens)));
+        } while (!available.compareAndSet(cur, next));
     }
 }

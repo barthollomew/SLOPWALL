@@ -60,7 +60,6 @@ class FallbackRouterTest {
 
     @Test
     void primaryTimeout_routesToFallbackWithin2100ms() {
-        // primary hangs 30s, fallbackTimeout is 2s
         var config = new RouterConfig(
             stubHanging("primary", Duration.ofSeconds(30)),
             stubSuccess("fallback", "quick"),
@@ -85,12 +84,11 @@ class FallbackRouterTest {
             public String name() { return "primary"; }
         };
         var breaker = new SlidingWindowCircuitBreaker();
-        // Trip the breaker
         for (int i = 0; i < 10; i++) breaker.recordFailure();
         var config = new RouterConfig(primary, stubSuccess("fallback", "fb"), Duration.ofSeconds(2), breaker, new SlidingWindowCircuitBreaker());
         var router = new FallbackRouter(config);
         router.route(AiRequest.of("t1", "gpt-4o", "hi"));
-        assertEquals(0, primaryCalls.get()); // primary never called when circuit open
+        assertEquals(0, primaryCalls.get());
     }
 
     @Test

@@ -43,7 +43,7 @@ class SemanticCacheTest {
     void differentTenantDoesNotHit() {
         cache.store("t1", "hello world", "Hi there!");
         var result = cache.lookup("t2", "hello world");
-        assertFalse(result.isPresent()); // isolated by tenant
+        assertFalse(result.isPresent());
     }
 
     @Test
@@ -70,7 +70,7 @@ class SemanticCacheTest {
         for (int i = 0; i < 20; i++) {
             cache.store("t1", "prompt-" + i, "response-" + i);
         }
-        var result = cache.lookup("t1", "prompt-0"); // exact match
+        var result = cache.lookup("t1", "prompt-0");
         assertTrue(result.isPresent());
     }
 }
